@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Conda / venv
+.env
+.venv
+conda/
+miniconda/
+
+# HuggingFace / cache
+.cache/
+hf_cache/
+~/.cache/
+
+# PyTorch
+*.pt
+*.pth
+*.ckpt
+
+# Logs / outputs
+logs/
+outputs/
+results/
+
+# OS
+.DS_Store
+Thumbs.db

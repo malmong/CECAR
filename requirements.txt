@@ -1,0 +1,8 @@
+torch
+torchvision
+transformers==4.51.3
+huggingface_hub
+requests
+urllib3
+accelerate
+datasets==4.5.0

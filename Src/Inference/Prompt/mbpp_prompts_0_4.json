@@ -1,0 +1,7 @@
+{
+  "mbpp_0": "\"\"\"\nWrite a python function to remove first and last occurrence of a given character from the string.\nassert remove_Occ(\"hello\",\"l\") == \"heo\"\n\"\"\"",
+  "mbpp_1": "\"\"\"\nWrite a function to sort a given matrix in ascending order according to the sum of its rows.\nassert sort_matrix([[1, 2, 3], [2, 4, 5], [1, 1, 1]])==[[1, 1, 1], [1, 2, 3], [2, 4, 5]]\n\"\"\"",
+  "mbpp_2": "\"\"\"\nWrite a function to count the most common words in a dictionary.\nassert count_common(['red','green','black','pink','black','white','black','eyes','white','black','orange','pink','pink','red','red','white','orange','white',\"black\",'pink','green','green','pink','green','pink','white','orange',\"orange\",'red']) == [('pink', 6), ('black', 5), ('white', 5), ('red', 4)]\n\"\"\"",
+  "mbpp_3": "\"\"\"\nWrite a python function to find the volume of a triangular prism.\nassert find_Volume(10,8,6) == 240\n\"\"\"",
+  "mbpp_4": "\"\"\"\nWrite a function to split a string at lowercase letters.\nassert split_lowerstring(\"AbCd\")==['bC','d']\n\"\"\""
+}

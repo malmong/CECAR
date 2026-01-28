@@ -1,0 +1,7 @@
+{
+  "math500_0": "If the pattern shown continues, what is the letter in the $2010$th position? MATHLETEMATHLETEMATHLETE...\nPlease reason step by step, and put your final answer within \\boxed{}.",
+  "math500_1": "A number is chosen uniformly at random from among the positive integers less than $10^8$. Given that the sum of the digits of the number is 9, what is the probability that the number is prime?\nPlease reason step by step, and put your final answer within \\boxed{}.",
+  "math500_2": "If $x=720$ and $ax$ is a perfect cube where $a$ is a positive integer, what is the smallest possible value of $\\sqrt[3]{ax}$?\nPlease reason step by step, and put your final answer within \\boxed{}.",
+  "math500_3": "What is the smallest whole number $b$ such that 47 can be expressed in base $b$ using only two digits?\nPlease reason step by step, and put your final answer within \\boxed{}.",
+  "math500_4": "The superfactorial $n\\$$ is defined as $n\\$ = \\underbrace{ n!^{{n!}^{{\\cdot}^{{\\cdot}^{{\\cdot}^{n!}}}}}}_{n!}$. What is the units digit of $4\\$$?\nPlease reason step by step, and put your final answer within \\boxed{}."
+}

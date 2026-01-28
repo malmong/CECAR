@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ----------------------------------------
+# Args
+# ----------------------------------------
+MODEL=""
+
+TEST_TASK=""
+TASK_NUM=""
+CACHE_POLICY=""
+MODE=""
+BONUS_STRATEGY=""
+INPUT_PROMPT=""
+
+EXTRA_FLAGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model)
+      MODEL="${2:-}"
+      shift 2
+      ;;
+    --test-task)
+      TEST_TASK="${2:-}"
+      shift 2
+      ;;
+    --task-num)
+      TASK_NUM="${2:-}"
+      shift 2
+      ;;
+    --cache-policy)
+      CACHE_POLICY="${2:-}"
+      shift 2
+      ;;
+    --mode)
+      MODE="${2:-}"
+      shift 2
+      ;;
+    --bonus-strategy)
+      BONUS_STRATEGY="${2:-}"
+      shift 2
+      ;;
+    --input)
+      INPUT_PROMPT="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# ----------------------------------------
+# Required args check
+# ----------------------------------------
+if [[ -z "$MODEL" ]]; then
+  echo "Error: --model is required"
+  exit 1
+fi
+
+if [[ -z "$CACHE_POLICY" || -z "$MODE" || -z "$BONUS_STRATEGY" ]]; then
+  echo "Error: --cache-policy, --mode, --bonus-strategy are required"
+  exit 1
+fi
+
+# ----------------------------------------
+# Mode validation
+# ----------------------------------------
+if [[ -n "$INPUT_PROMPT" ]]; then
+  # Custom prompt mode
+  RUN_MODE="input"
+else
+  # Benchmark mode
+  if [[ -z "$TEST_TASK" || -z "$TASK_NUM" ]]; then
+    echo "Error: --test-task and --task-num are required unless --input is provided"
+    exit 1
+  fi
+  RUN_MODE="benchmark"
+fi
+
+if [[ "$BONUS_STRATEGY" == "cecar" && "$CACHE_POLICY" != "ML_CECAR" && "$CACHE_POLICY" != "lru" ]]; then
+  echo "Error: --bonus-strategy cecar requires --cache-policy ML_CECAR or lru"
+  exit 1
+fi
+
+# ----------------------------------------
+# Auto flag for DeepSeek
+# ----------------------------------------
+if [[ "$MODEL" == "DeepSeek_v2_Lite_Chat" ]]; then
+  EXTRA_FLAGS+=(--use-chat-template)
+fi
+
+# ----------------------------------------
+# Paths
+# ----------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INFER_DIR="${SCRIPT_DIR}/Src/Inference/${MODEL}"
+INFER_PY="infer_${MODEL}.py"
+
+if [[ ! -d "$INFER_DIR" ]]; then
+  echo "Inference dir not found: $INFER_DIR"
+  exit 1
+fi
+
+if [[ ! -f "${INFER_DIR}/${INFER_PY}" ]]; then
+  echo "Inference script not found: ${INFER_DIR}/${INFER_PY}"
+  exit 1
+fi
+
+# ----------------------------------------
+# Run Inference
+# ----------------------------------------
+cd "$INFER_DIR"
+
+if [[ "$RUN_MODE" == "benchmark" ]]; then
+  python3 "$INFER_PY" \
+    --test-task "$TEST_TASK" \
+    --task-num "$TASK_NUM" \
+    --cache-policy "$CACHE_POLICY" \
+    --mode "$MODE" \
+    --bonus-strategy "$BONUS_STRATEGY" \
+    "${EXTRA_FLAGS[@]}"
+else
+  python3 "$INFER_PY" \
+    --cache-policy "$CACHE_POLICY" \
+    --mode "$MODE" \
+    --bonus-strategy "$BONUS_STRATEGY" \
+    --input "$INPUT_PROMPT" \
+    "${EXTRA_FLAGS[@]}"
+fi
+
+cd "$SCRIPT_DIR"
+
+echo "[OK] inference finished: model=${MODEL}, mode=${RUN_MODE}"

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ----------------------------------------
+# Args
+# ----------------------------------------
+MODEL_NAME=""
+MODE=""
+TRAIN_FFN_MODEL=""
+EVAL_MODEL=""
+CECAR_CKPT_DIR=""
+FLASHMOE_CKPT_DIR=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model_name)
+      MODEL_NAME="${2:-}"
+      shift 2
+      ;;
+    --mode)
+      MODE="${2:-}"
+      shift 2
+      ;;
+    --train_ffn_model)
+      TRAIN_FFN_MODEL="${2:-}"
+      shift 2
+      ;;
+    --eval_model)
+      EVAL_MODEL="${2:-}"
+      shift 2
+      ;;
+    --CECAR_ckpt_dir)
+      CECAR_CKPT_DIR="${2:-}"
+      shift 2
+      ;;
+    --FlashMoE_ckpt_dir)
+      FLASHMOE_CKPT_DIR="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      echo "Usage: ./train --model_name <name> --mode <mode> [options]"
+      exit 1
+      ;;
+  esac
+done
+
+# ----------------------------------------
+# Required args check
+# ----------------------------------------
+if [[ -z "$MODEL_NAME" || -z "$MODE" ]]; then
+  echo "Usage: ./train --model_name <name> --mode <mode> [options]"
+  exit 1
+fi
+
+# ----------------------------------------
+# eval_only mode validation
+# ----------------------------------------
+if [[ "$MODE" == "eval_only" ]]; then
+  if [[ -n "$TRAIN_FFN_MODEL" ]]; then
+    echo "Error: --train_ffn_model is not required when --mode eval_only"
+    exit 1
+  fi
+
+  if [[ -z "$CECAR_CKPT_DIR" && -z "$FLASHMOE_CKPT_DIR" ]]; then
+    echo "Error: You should define --CECAR_ckpt_dir or --FlashMoE_ckpt_dir"
+    exit 1
+  fi
+fi
+
+# ----------------------------------------
+# Paths
+# ----------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TRAIN_DIR="${SCRIPT_DIR}/Src/Train"
+ROUTING_DIR="${TRAIN_DIR}/src/Routing_history/${MODEL_NAME}"
+
+if [[ ! -d "$TRAIN_DIR" ]]; then
+  echo "Train dir not found: $TRAIN_DIR"
+  exit 1
+fi
+
+# ----------------------------------------
+# Routing history existence check
+# ----------------------------------------
+if [[ ! -d "$ROUTING_DIR" ]]; then
+  echo "Error: Routing history dir not found: $ROUTING_DIR"
+  exit 1
+fi
+
+cd "$ROUTING_DIR"
+
+REQUIRED_FILES=(
+  "${MODEL_NAME}_triviaqa.pt"
+  "${MODEL_NAME}_mbpp.pt"
+  "${MODEL_NAME}_math.pt"
+  "${MODEL_NAME}_humaneval.pt"
+  "${MODEL_NAME}_gpqa.pt"
+)
+
+for f in "${REQUIRED_FILES[@]}"; do
+  if [[ ! -f "$f" ]]; then
+    echo "Error: Required routing history file missing: $ROUTING_DIR/$f"
+    exit 1
+  fi
+done
+
+echo "[OK] All routing history files found for model=${MODEL_NAME}"
+
+# ----------------------------------------
+# Run Training / Evaluation
+# ----------------------------------------
+cd "$TRAIN_DIR"
+
+python3 ML_Train.py \
+  --model_name "$MODEL_NAME" \
+  --mode "$MODE" \
+  ${TRAIN_FFN_MODEL:+--train_ffn_model "$TRAIN_FFN_MODEL"} \
+  ${EVAL_MODEL:+--eval_model "$EVAL_MODEL"} \
+  ${CECAR_CKPT_DIR:+--CECAR_ckpt_dir "$CECAR_CKPT_DIR"} \
+  ${FLASHMOE_CKPT_DIR:+--FlashMoE_ckpt_dir "$FLASHMOE_CKPT_DIR"}
+
+cd "$SCRIPT_DIR"
+
+echo "[OK] train finished: model=${MODEL_NAME}, mode=${MODE}"

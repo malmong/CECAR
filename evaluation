@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ----------------------------------------
+# Args
+# ----------------------------------------
+SIM_MODEL=""
+TASKS=""
+CACHE_POLICY=""
+MODE=""
+BONUS_STRATEGY=""
+LIMIT=""
+LIMIT_START=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --simulation_model)
+      SIM_MODEL="${2:-}"; shift 2 ;;
+    --tasks)
+      TASKS="${2:-}"; shift 2 ;;
+    --cache_policy)
+      CACHE_POLICY="${2:-}"; shift 2 ;;
+    --mode)
+      MODE="${2:-}"; shift 2 ;;
+    --bonus_strategy)
+      BONUS_STRATEGY="${2:-}"; shift 2 ;;
+    --limit)
+      LIMIT="${2:-}"; shift 2 ;;
+    --limit_start)
+      LIMIT_START="${2:-}"; shift 2 ;;
+    *)
+      echo "Unknown argument: $1"
+      echo "Usage: ./Evaluation --simulation_model <MODEL> --tasks <TASKS> --cache_policy <POLICY> --mode <MODE> --bonus_strategy <STRATEGY> [--limit N] [--limit_start N]"
+      exit 1
+      ;;
+  esac
+done
+
+# ----------------------------------------
+# Required args check
+# ----------------------------------------
+if [[ -z "$SIM_MODEL" || -z "$TASKS" || -z "$CACHE_POLICY" || -z "$MODE" || -z "$BONUS_STRATEGY" ]]; then
+  echo "Usage: ./Evaluation --simulation_model <MODEL> --tasks <TASKS> --cache_policy <POLICY> --mode <MODE> --bonus_strategy <STRATEGY> [--limit N] [--limit_start N]"
+  exit 1
+fi
+
+# ----------------------------------------
+# Paths
+# ----------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EVAL_DIR="${SCRIPT_DIR}/Src/Evaluation"
+OPENCOMPASS_DIR="${SCRIPT_DIR}/Src/Evaluation/opencompass"
+REQ_FILE="${SCRIPT_DIR}/requirements.txt"
+
+if [[ ! -d "$EVAL_DIR" ]]; then
+  echo "Evaluation dir not found: $EVAL_DIR"
+  exit 1
+fi
+
+if [[ ! -f "${EVAL_DIR}/main.py" ]]; then
+  echo "main.py not found: ${EVAL_DIR}/main.py"
+  exit 1
+fi
+
+# ----------------------------------------
+# Pre: opencompass install for math500/gpqa
+# - triggers if TASKS contains "math500" or "gpqa" (case-insensitive)
+# ----------------------------------------
+TASKS_LC="$(echo "$TASKS" | tr '[:upper:]' '[:lower:]')"
+NEED_OPENCOMPASS=0
+if [[ "$TASKS_LC" == *"math500"* || "$TASKS_LC" == *"gpqa"* ]]; then
+  NEED_OPENCOMPASS=1
+fi
+
+if [[ $NEED_OPENCOMPASS -eq 1 ]]; then
+  if [[ ! -d "$OPENCOMPASS_DIR" ]]; then
+    echo "OpenCompass dir not found: $OPENCOMPASS_DIR"
+    exit 1
+  fi
+  cd "$OPENCOMPASS_DIR"
+  python3 -m pip install -e . -q 2>/dev/null
+  cd "$SCRIPT_DIR"
+fi
+
+# ----------------------------------------
+# Auto-generated args
+# ----------------------------------------
+NON_EXPERT_MODEL_PATH="../Build/models/${SIM_MODEL}/non_expert"
+MODEL_PATH="../Build/models/${SIM_MODEL}/non_expert"
+EXPERT_PATH="../Build/models/${SIM_MODEL}/experts"
+FFN_MODEL_PATH="../Train/Pre_trained_FFN/${SIM_MODEL}"
+MCMOE_THRESHOLD_PATH="./fiddler_model/MCMOE"
+
+SAFE_TASKS="${TASKS//[^a-zA-Z0-9._-]/_}"
+
+SAVE_GEN_PATH="results/${SIM_MODEL}_${CACHE_POLICY}_${SAFE_TASKS}.json"
+METRIC_OUT_PATH="results/${SIM_MODEL}_${CACHE_POLICY}_${SAFE_TASKS}_results.json"
+SIM_STATS_PATH="results/${SIM_MODEL}_${CACHE_POLICY}_${SAFE_TASKS}_simulation_stats.json"
+
+EXTRA_FLAGS=()
+
+# DeepSeek shared expert
+if [[ "$SIM_MODEL" == "DeepSeek_v2_Lite_Chat" ]]; then
+  EXTRA_FLAGS+=(--shared_expert_path "../Build/models/${SIM_MODEL}/shared_expert")
+fi
+
+# ----------------------------------------
+# Force topk_threshold (fixed policy)
+# - default: 4
+# - DeepSeek_v2_Lite_Chat: 3
+# ----------------------------------------
+TOPK_THRESHOLD_FIXED=4
+if [[ "$SIM_MODEL" == "DeepSeek_v2_Lite_Chat" ]]; then
+  TOPK_THRESHOLD_FIXED=3
+fi
+
+# Optional numeric args
+OPT_ARGS=()
+OPT_ARGS+=(--topk_threshold "$TOPK_THRESHOLD_FIXED")
+[[ -n "$LIMIT" ]] && OPT_ARGS+=(--limit "$LIMIT")
+[[ -n "$LIMIT_START" ]] && OPT_ARGS+=(--limit_start "$LIMIT_START")
+
+# ----------------------------------------
+# Run Evaluation
+# ----------------------------------------
+cd "$EVAL_DIR"
+
+python3 main.py \
+  --simulation_model "$SIM_MODEL" \
+  --tasks "$TASKS" \
+  --cache_policy "$CACHE_POLICY" \
+  --mode "$MODE" \
+  --bonus_strategy "$BONUS_STRATEGY" \
+  --non_expert_model "$NON_EXPERT_MODEL_PATH" \
+  --model "$MODEL_PATH" \
+  --expert_path "$EXPERT_PATH" \
+  --allow_code_execution \
+  --save_generations \
+  --save_generations_path "$SAVE_GEN_PATH" \
+  --metric_output_path "$METRIC_OUT_PATH" \
+  --simulation_stats_path "$SIM_STATS_PATH" \
+  --temperature 0 \
+  --do_sample false \
+  --ffn_model_path "$FFN_MODEL_PATH" \
+  --simulation_device_map cuda \
+  --mcmoe_threshold_path "$MCMOE_THRESHOLD_PATH" \
+  "${OPT_ARGS[@]}" \
+  "${EXTRA_FLAGS[@]}"
+
+cd "$SCRIPT_DIR"
+
+# ----------------------------------------
+# Post: restore/ensure requirements (quiet)
+# ----------------------------------------
+if [[ -f "$REQ_FILE" ]]; then
+  python3 -m pip install --upgrade pip -q
+  python3 -m pip install -r "$REQ_FILE" -q 2>/dev/null
+else
+  echo "Warning: requirements file not found: $REQ_FILE (skip post-install)"
+fi
+
+echo "[OK] evaluation finished: model=${SIM_MODEL}, tasks=${TASKS}, cache=${CACHE_POLICY}, topk_threshold=${TOPK_THRESHOLD_FIXED}"

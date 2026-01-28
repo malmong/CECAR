@@ -1,0 +1,4 @@
+{
+  "n_layers": 16,
+  "num_experts": 64
+}
