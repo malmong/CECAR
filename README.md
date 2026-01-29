@@ -59,7 +59,7 @@ conda activate CECAR
 ### 🛠️ Install CECAR from Source
 
 ```
-git clone https://github.com/CECAR/CECAR
+git clone https://github.com/malmong/CECAR
 cd CECAR
 
 chmod +x build
@@ -79,6 +79,7 @@ Build model-specific assets:
 ```
 
 The `build` script prepares **model-specific assets and dependencies**, including:
++ Huggingface login
 + Downloading required model checkpoints and tokenizer files
 + Installing or verifying model-dependent Python requirements
 + Generating intermediate metadata used by training, inference, and evaluation
@@ -98,9 +99,9 @@ You must run `build` **at least once** before running `inference` or `evaluation
 ```
 ./train \
   --model_name {model_name} \
-  --mode eval_only \
-  --train_ffn_model ML_CECAR \
-  --eval_model ML_CECAR
+  --mode {mode} \
+  --train_ffn_model {train_ffn_model} \
+  --eval_model {eval_model}
 ```
 
 The `train` script is used to **train and/or evaluate ML-based cache eviction models**.
@@ -216,6 +217,8 @@ If both options are omitted, evaluation is performed on the **entire dataset**.
 + Pretrained FFN-based eviction models are provided, so training can be skipped for most use cases.
 + The framework cleanly separates cache policy, routing strategy, and bonus mechanism, enabling controlled ablation studies.
 + For fine-grained control or custom experimentation, users may directly run the underlying Python scripts instead of the provided shell wrappers
+
+
 
 
 
