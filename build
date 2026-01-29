@@ -5,8 +5,6 @@ set -euo pipefail
 # Args
 # ----------------------------------------
 MODEL_NAME=""
-HF_REPO_ID="ByeongjuKim/cecar_dataset"   
-HF_REVISION="main"                      
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -14,24 +12,16 @@ while [[ $# -gt 0 ]]; do
       MODEL_NAME="${2:-}"
       shift 2
       ;;
-    --hf_repo_id)
-      HF_REPO_ID="${2:-}"
-      shift 2
-      ;;
-    --hf_revision)
-      HF_REVISION="${2:-}"
-      shift 2
-      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: ./build --model_name <MODEL_NAME> [--hf_repo_id <HF_REPO>] [--hf_revision <REV>]"
+      echo "Usage: ./build --model_name <MODEL_NAME>"
       exit 1
       ;;
   esac
 done
 
 if [[ -z "$MODEL_NAME" ]]; then
-  echo "Usage: ./build --model_name <MODEL_NAME> [--hf_repo_id <HF_REPO>] [--hf_revision <REV>]"
+  echo "Usage: ./build --model_name <MODEL_NAME>"
   exit 1
 fi
 
@@ -43,8 +33,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQ_FILE="${SCRIPT_DIR}/requirements.txt"
 OPENCOMPASS_DIR="${SCRIPT_DIR}/Src/Evaluation/opencompass"
 DECOMPOSE_DIR="${SCRIPT_DIR}/Src/Build"
-
-# Routing history base dir (download target)
 ROUTING_HISTORY_BASE="${SCRIPT_DIR}/Src/Train/src/Routing_history"
 
 # ----------------------------------------
@@ -71,12 +59,10 @@ python3 -m pip install --upgrade pip -q
 python3 -m pip install -r "$REQ_FILE" -q 2>/dev/null
 
 # ----------------------------------------
-# 2.2) Hugging Face login (non-interactive preferred)
-#   - If HF_TOKEN (or HUGGINGFACE_HUB_TOKEN) is set: login automatically
-#   - Else: proceed if already logged in; otherwise fail with guidance
+# 2.2) Hugging Face login
 # ----------------------------------------
 export HF_REPO_ID="CECAR-Project/cecar_dataset"
-export HF_REVISION="main"   
+export HF_REVISION="main"
 
 python3 - <<'PY'
 import os, sys
@@ -107,10 +93,8 @@ else:
 print("[OK] Hugging Face authentication ready.")
 PY
 
-
 # ----------------------------------------
-# 2.5) Download routing_history dataset from Hugging Face (with SKIP)
-#   - Download only the requested MODEL_NAME (not all models)
+# 2.5) Download routing_history dataset
 # ----------------------------------------
 mkdir -p "$ROUTING_HISTORY_BASE"
 export ROUTING_HISTORY_BASE HF_REPO_ID HF_REVISION MODEL_NAME
@@ -128,7 +112,7 @@ tasks = ["gpqa", "humaneval", "math", "mbpp", "triviaqa"]
 
 api = HfApi()
 try:
-    api.repo_info(repo_id=HF_REPO_ID, repo_type="model")  
+    api.repo_info(repo_id=HF_REPO_ID, repo_type="model")
 except Exception as e:
     print(f"[ERROR] HF model repo not accessible: {HF_REPO_ID}")
     print(f"        {e}")
@@ -147,7 +131,7 @@ def dl(fname, dest_dir):
         repo_id=HF_REPO_ID,
         filename=fname,
         revision=HF_REVISION,
-        repo_type="model",              
+        repo_type="model",
         local_dir=dest_dir,
         local_dir_use_symlinks=False,
     )
@@ -175,7 +159,6 @@ for task in tasks:
 
 print(f"[OK] routing_history ready | downloaded={downloaded}, skipped={skipped}")
 PY
-
 
 # ----------------------------------------
 # 3) Run Decompose
