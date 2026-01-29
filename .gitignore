@@ -15,15 +15,20 @@ hf_cache/
 ~/.cache/
 
 # PyTorch
-*.pt
 *.pth
 *.ckpt
 
-# Logs / outputs
-logs/
-outputs/
-results/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# ignore results outputs
+Src/Evaluation/results/*
+Src/Evaluation/outputs/default/*
+
+# but keep directory itself
+!Src/Evaluation/results/.gitkeep
+!Src/Evaluation/results/.gitignore
+!Src/Evaluation/outputs/default/.gitkeep
+!Src/Evaluation/outputs/default/.gitignore
