@@ -5,8 +5,8 @@ set -euo pipefail
 # Args
 # ----------------------------------------
 MODEL_NAME=""
-HF_REPO_ID="ByeongjuKim/cecar_dataset"   # <-- FIX: 기본 repo_id
-HF_REVISION="main"                      # <-- 기본 브랜치(필요시 바꿀 수 있게)
+HF_REPO_ID="ByeongjuKim/cecar_dataset"   
+HF_REVISION="main"                      
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
