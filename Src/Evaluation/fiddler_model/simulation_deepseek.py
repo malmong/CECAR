@@ -865,7 +865,6 @@ class SimulationDeepseek:
             # ----------------------------
             # DES / ODP  (UNCHANGED logic, only formatting)
             # ----------------------------
-            des_keep_mask_2d = None
             if use_des:
                 if int(topk_weight_2d.shape[1]) != 6:
                     raise RuntimeError(f"DES Top4-6 requires gate topk=6, got K={int(topk_weight_2d.shape[1])}")
@@ -904,47 +903,7 @@ class SimulationDeepseek:
                 keep_mask.scatter_(1, order, keep_sorted)
 
                 topk_weight_2d = topk_weight_2d * keep_mask.to(topk_weight_2d.dtype)
-                des_keep_mask_2d = keep_mask   
-
-
-            if is_prefill and (self.virtual_cache is not None):
-                # shapes: topk_idx_2d = (T, K) where T=bsz*seq, K=topk
-                bsz, seq, _ = moe_in.shape
-                K = int(topk_idx_2d.shape[-1])
-            
-                topk_idx_flat = topk_idx_2d.view(bsz * seq, K)
-            
-                keep_mask_flat = None
-                if use_des and (des_keep_mask_2d is not None):
-                    keep_mask_flat = des_keep_mask_2d.view(bsz * seq, K)
-            
-                for b in range(bsz):
-                    last_token_idx = b * seq + (seq - 1)
-            
-                    if keep_mask_flat is not None:
-                        kept_pos = keep_mask_flat[last_token_idx].nonzero(as_tuple=True)[0]
-                        warm_experts = (
-                            topk_idx_flat[last_token_idx, kept_pos].tolist() if kept_pos.numel() > 0 else []
-                        )
-                    else:
-                        warm_experts = topk_idx_flat[last_token_idx].tolist()
-            
-                    # keep only valid expert ids
-                    warm_experts = [int(e) for e in warm_experts if 0 <= int(e) < self.n_expert]
-            
-                    # safety fallback: warm at least one expert
-                    if len(warm_experts) == 0:
-                        e0 = int(topk_idx_flat[last_token_idx, 0].item())
-                        if 0 <= e0 < self.n_expert:
-                            warm_experts = [e0]
-            
-                    # Warm cache: prefer explicit add_to_cache; fallback to access()
-                    if hasattr(self.virtual_cache, "add_to_cache"):
-                        for e in warm_experts:
-                            self.virtual_cache.add_to_cache(b, i_layer, int(e))
-                    else:
-                        for e in warm_experts:
-                            self.virtual_cache.access(b, i_layer, int(e))             
+                des_keep_mask_2d = keep_mask                
 
 
             # ----------------------------
@@ -969,119 +928,59 @@ class SimulationDeepseek:
             topk_threshold = min(int(self.topk_threshold), compute_k)
 
             for n in range(N):
-                b = n // seq
+                b = n // seq 
                 x_row = x2d[n:n + 1]
-            
-                experts_topk = [int(e) for e in topk_idx[n].tolist()]
-                weights_topk = [float(w) for w in topk_w[n].tolist()]
-            
-                # -------------------------
-                # 1) Apply DES keep_mask to execution list (NO renorm)
-                # -------------------------
-                if use_des and (des_keep_mask_2d is not None):
-                    keep_row = des_keep_mask_2d.view(N, topk)[n]  # (K,) bool
-                    experts_topk = [e for j, e in enumerate(experts_topk) if bool(keep_row[j])]
-                    weights_topk = [w for j, w in enumerate(weights_topk) if bool(keep_row[j])]
-            
-                    # safety: if everything pruned, fallback to first original expert
-                    if len(experts_topk) == 0:
-                        # fallback: take argmax among original topk_w (already masked earlier, but just in case)
-                        # here we fallback to first expert in original ordering
-                        experts_topk = [int(topk_idx[n, 0].item())]
-                        weights_topk = [float(topk_w[n, 0].item())]
-            
-                # also skip zero-weight experts (important: avoid access on pruned experts)
-                tmp_experts = []
-                tmp_weights = []
-                for e, w in zip(experts_topk, weights_topk):
-                    if (e < 0) or (e >= self.n_expert):
-                        continue
-                    if w <= 0.0:
-                        continue
-                    tmp_experts.append(e)
-                    tmp_weights.append(w)
-                experts_topk, weights_topk = tmp_experts, tmp_weights
-            
-                if len(experts_topk) == 0:
-                    # final safety fallback
-                    e0 = int(topk_idx[n, 0].item())
-                    w0 = float(topk_w[n, 0].item())
-                    if 0 <= e0 < self.n_expert and w0 > 0:
-                        experts_topk, weights_topk = [e0], [w0]
-            
-                # -------------------------
-                # 2) Decode filtering (cecar/constant) — choose final exec_experts (NO renorm)
-                # -------------------------
+
+                experts_topk = topk_idx[n].tolist()
+                weights_topk = topk_w[n].tolist()
+
                 if apply_decode_filter:
                     experts_cut = experts_topk[:compute_k]
                     weights_cut = weights_topk[:compute_k]
-            
+
                     cached = self.virtual_cache.get_cached_expert_ids(b, i_layer) or []
                     cached_set = set(int(eid) for eid in cached)
-            
+
                     kept_experts: List[int] = []
                     kept_weights: List[float] = []
                     for k_idx, e in enumerate(experts_cut):
                         if (k_idx < topk_threshold) or (int(e) in cached_set):
                             kept_experts.append(int(e))
                             kept_weights.append(float(weights_cut[k_idx]))
-            
+
                     if len(kept_experts) == 0:
                         kept_experts = [int(experts_cut[0])]
                         kept_weights = [float(weights_cut[0])]
-            
+
                     exec_experts = kept_experts
                     exec_weights = kept_weights
                 else:
-                    exec_experts = experts_topk
-                    exec_weights = weights_topk
-            
-                # final skip-zero check (after filter)
-                tmp_experts = []
-                tmp_weights = []
+                    exec_experts = [int(e) for e in experts_topk]
+                    exec_weights = [float(w) for w in weights_topk]
+
+                # Execute experts
                 for e, w in zip(exec_experts, exec_weights):
-                    if (e < 0) or (e >= self.n_expert):
+                    if e < 0 or e >= self.n_expert:
                         continue
-                    if w <= 0.0:
-                        continue
-                    tmp_experts.append(int(e))
-                    tmp_weights.append(float(w))
-                exec_experts, exec_weights = tmp_experts, tmp_weights
-            
-                if len(exec_experts) == 0:
-                    # safety fallback
-                    e0 = int(topk_idx[n, 0].item())
-                    w0 = float(topk_w[n, 0].item())
-                    if 0 <= e0 < self.n_expert and w0 > 0:
-                        exec_experts, exec_weights = [e0], [w0]
-            
-                # -------------------------
-                # 3) Cache access + stats (decode only) — access FIRST
-                # -------------------------
-                if is_decode:
-                    # access for each expert used (exactly once)
-                    for e in exec_experts:
-                        hit = self.virtual_cache.access(b, i_layer, int(e))
-            
+
+                    if is_decode:
+                        # arithmetic update (per token)
+                        self.virtual_cache.update_arithmetic(b, i_layer, exec_experts)
+                        hit = self.virtual_cache.access(b, i_layer, e)
+                
+                        # decode-only stats
                         self.stats.cnt_expert_all_by_layer[b][i_layer] += 1
                         if hit:
                             self.stats.cnt_expert_hit_by_layer[b][i_layer] += 1
-            
-                    # update_arithmetic ONCE per token, AFTER access
-                    self.virtual_cache.update_arithmetic(b, i_layer, exec_experts)
-            
-                # -------------------------
-                # 4) Expert compute (unchanged math, but uses exec_experts/exec_weights)
-                # -------------------------
-                for e, w in zip(exec_experts, exec_weights):
-                    expert_layer = self.all_experts.get(i_layer, {}).get(int(e), None)
+                
+                    expert_layer = self.all_experts.get(i_layer, {}).get(e, None)
                     if expert_layer is None:
                         continue
-                    y2d[n] += (expert_layer(x_row) * float(w)).squeeze(0)
-            
-                # -------------------------
-                # 5) LRU/LFU step update (same as A, but based on exec_experts)
-                # -------------------------
+
+                    y2d[n] += (expert_layer(x_row) * w).squeeze(0)
+
+
+                # LRU/LFU step update (only when using those strategies)
                 if (not is_prefill) and (self.bonus_strategy in ("lru", "lfu")):
                     self.global_step[b] += 1
                     for exp in exec_experts:
@@ -1092,7 +991,6 @@ class SimulationDeepseek:
                             self.lru_counter[b][i_layer][exp] = self.global_step[b]
                         if self.bonus_strategy == "lfu":
                             self.lfu_counter[b][i_layer][exp] += 1
-
 
             hidden_after = y2d.view(bsz, seq, self.hidden_dim)
 
