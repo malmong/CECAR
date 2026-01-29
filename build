@@ -5,6 +5,8 @@ set -euo pipefail
 # Args
 # ----------------------------------------
 MODEL_NAME=""
+HF_REPO_ID="ByeongjuKim/cecar_dataset"   # <-- FIX: 기본 repo_id
+HF_REVISION="main"                      # <-- 기본 브랜치(필요시 바꿀 수 있게)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -12,16 +14,24 @@ while [[ $# -gt 0 ]]; do
       MODEL_NAME="${2:-}"
       shift 2
       ;;
+    --hf_repo_id)
+      HF_REPO_ID="${2:-}"
+      shift 2
+      ;;
+    --hf_revision)
+      HF_REVISION="${2:-}"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: ./build --model_name <MODEL_NAME>"
+      echo "Usage: ./build --model_name <MODEL_NAME> [--hf_repo_id <HF_REPO>] [--hf_revision <REV>]"
       exit 1
       ;;
   esac
 done
 
 if [[ -z "$MODEL_NAME" ]]; then
-  echo "Usage: ./build --model_name <MODEL_NAME>"
+  echo "Usage: ./build --model_name <MODEL_NAME> [--hf_repo_id <HF_REPO>] [--hf_revision <REV>]"
   exit 1
 fi
 
@@ -36,9 +46,6 @@ DECOMPOSE_DIR="${SCRIPT_DIR}/Src/Build"
 
 # Routing history base dir (download target)
 ROUTING_HISTORY_BASE="${SCRIPT_DIR}/Src/Train/src/Routing_history"
-
-# Hugging Face dataset repo
-HF_REPO_ID="CECAR-Project/cecar_dataset"
 
 # ----------------------------------------
 # 1) Install OpenCompass (editable) FIRST
@@ -64,78 +71,111 @@ python3 -m pip install --upgrade pip -q
 python3 -m pip install -r "$REQ_FILE" -q 2>/dev/null
 
 # ----------------------------------------
-# 2.5) Download routing_history dataset from Hugging Face (with SKIP)
-#      Timing: right after python requirements install
+# 2.2) Hugging Face login (non-interactive preferred)
+#   - If HF_TOKEN (or HUGGINGFACE_HUB_TOKEN) is set: login automatically
+#   - Else: proceed if already logged in; otherwise fail with guidance
 # ----------------------------------------
-mkdir -p "$ROUTING_HISTORY_BASE"
-export ROUTING_HISTORY_BASE HF_REPO_ID
+export HF_REPO_ID="CECAR-Project/cecar_dataset"
+export HF_REVISION="main"   
 
 python3 - <<'PY'
-import os
-import sys
+import os, sys
+from huggingface_hub import HfApi, login
 
-try:
-    from huggingface_hub import hf_hub_download
-except Exception:
-    print("[ERROR] huggingface_hub is not available. Please add 'huggingface_hub' to requirements.txt.")
-    raise
+api = HfApi()
+token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+
+def authed() -> bool:
+    try:
+        api.whoami()
+        return True
+    except Exception:
+        return False
+
+if token:
+    login(token=token, add_to_git_credential=False)
+    if not authed():
+        print("[ERROR] HF token login failed.")
+        sys.exit(1)
+else:
+    if not authed():
+        print("[ERROR] Not authenticated to Hugging Face.")
+        print("        Run: huggingface-cli login")
+        print("        OR set env: export HF_TOKEN=hf_xxx")
+        sys.exit(1)
+
+print("[OK] Hugging Face authentication ready.")
+PY
+
+
+# ----------------------------------------
+# 2.5) Download routing_history dataset from Hugging Face (with SKIP)
+#   - Download only the requested MODEL_NAME (not all models)
+# ----------------------------------------
+mkdir -p "$ROUTING_HISTORY_BASE"
+export ROUTING_HISTORY_BASE HF_REPO_ID HF_REVISION MODEL_NAME
+
+python3 - <<'PY'
+import os, sys
+from huggingface_hub import hf_hub_download, HfApi
 
 ROUTING_HISTORY_BASE = os.environ["ROUTING_HISTORY_BASE"]
 HF_REPO_ID = os.environ["HF_REPO_ID"]
+HF_REVISION = os.environ.get("HF_REVISION", "main")
+MODEL_NAME = os.environ["MODEL_NAME"]
 
-models = [
-    "DeepSeek_v2_Lite_Chat",
-    "OLMoE_1B_7B_0125_Instruct",
-    "Qwen3_30B_A3B",
-]
 tasks = ["gpqa", "humaneval", "math", "mbpp", "triviaqa"]
 
-def ensure_dir(path: str):
-    os.makedirs(path, exist_ok=True)
+api = HfApi()
+try:
+    api.repo_info(repo_id=HF_REPO_ID, repo_type="model")  
+except Exception as e:
+    print(f"[ERROR] HF model repo not accessible: {HF_REPO_ID}")
+    print(f"        {e}")
+    sys.exit(1)
 
-def maybe_download(filename: str, dest_dir: str):
+def ensure_dir(p): os.makedirs(p, exist_ok=True)
+
+def dl(fname, dest_dir):
     ensure_dir(dest_dir)
-    target_path = os.path.join(dest_dir, filename)
-
+    target_path = os.path.join(dest_dir, fname)
     if os.path.isfile(target_path):
-        print(f"[SKIP] {filename} already exists")
+        print(f"[SKIP] {fname}")
         return target_path
-
-    print(f"[DL]   {filename}")
+    print(f"[DL]   {fname}  (repo={HF_REPO_ID}@{HF_REVISION})")
     return hf_hub_download(
         repo_id=HF_REPO_ID,
-        filename=filename,
-        repo_type="dataset",
+        filename=fname,
+        revision=HF_REVISION,
+        repo_type="model",              
         local_dir=dest_dir,
         local_dir_use_symlinks=False,
     )
 
-print(f"[INFO] Download routing_history from HF dataset: {HF_REPO_ID}")
+print(f"[INFO] Download routing_history from HF model repo: {HF_REPO_ID} (rev={HF_REVISION})")
 print(f"[INFO] Target base dir: {ROUTING_HISTORY_BASE}")
+print(f"[INFO] Target model: {MODEL_NAME}")
 
-downloaded = 0
-skipped = 0
+model_dir = os.path.join(ROUTING_HISTORY_BASE, MODEL_NAME)
 
-for model in models:
-    model_dir = os.path.join(ROUTING_HISTORY_BASE, model)
-    for task in tasks:
-        fname = f"{model}_{task}.pt"
-        local_path = os.path.join(model_dir, fname)
-
-        if os.path.isfile(local_path):
-            skipped += 1
-            print(f"[SKIP] {fname}")
-            continue
-
-        try:
-            maybe_download(fname, model_dir)
-            downloaded += 1
-        except Exception as e:
-            print(f"[ERROR] Failed to download {fname}: {e}")
-            sys.exit(1)
+downloaded = skipped = 0
+for task in tasks:
+    fname = f"{MODEL_NAME}_{task}.pt"
+    local_path = os.path.join(model_dir, fname)
+    if os.path.isfile(local_path):
+        skipped += 1
+        print(f"[SKIP] {fname}")
+        continue
+    try:
+        dl(fname, model_dir)
+        downloaded += 1
+    except Exception as e:
+        print(f"[ERROR] Failed to download {fname}: {e}")
+        sys.exit(1)
 
 print(f"[OK] routing_history ready | downloaded={downloaded}, skipped={skipped}")
 PY
+
 
 # ----------------------------------------
 # 3) Run Decompose
@@ -146,8 +186,7 @@ if [[ ! -d "$DECOMPOSE_DIR" ]]; then
 fi
 
 cd "$DECOMPOSE_DIR"
-python3 Decompose_moe_model_repo.py \
-  --model_name "$MODEL_NAME"
+python3 Decompose_moe_model_repo.py --model_name "$MODEL_NAME"
 
 cd "$SCRIPT_DIR"
 echo "[OK] build finished: --model_name ${MODEL_NAME}"
