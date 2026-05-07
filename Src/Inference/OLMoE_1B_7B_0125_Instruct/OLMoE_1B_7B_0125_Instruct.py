@@ -404,7 +404,6 @@ class FiddlerOlmoe:
                 break
 
         self.routed_expert_counts.append(len(kept_e))
-        self.executor.submit(self.expert_cache.update_arithmetic, layer_id, [kept_e])
 
         tope = torch.tensor([kept_e], device=self.dev, dtype=torch.long)
         topw = torch.tensor([kept_w], device=self.dev, dtype=torch.float)
